@@ -1,0 +1,3 @@
+AceLabs Bulk Link Checker  
+Copyright (c) 2025 AceLabs  
+All rights reserved.

@@ -1,0 +1,49 @@
+{% extends "_layouts/cp" %}
+{% import "_includes/forms" as forms %}
+
+{% set title = "Bulk Link Checker - Settings" %}
+
+{% set crumbs = [
+    {
+        label: "Bulk Link Checker",
+        url: url('bulk-link-checker')
+    },
+    {
+        label: "Settings",
+        url: url('bulk-link-checker/settings')
+    }
+] %}
+
+
+{# Always grab the actual plugin + its settings #}
+
+{% set title = "Bulk Link Checker Settings"|t('bulk-link-checker') %}
+{% set selectedSubnavItem = "settings" %}
+
+
+
+{% block content %}
+<form method="post" accept-charset="UTF-8">
+    {{ csrfInput() }}
+    {{ actionInput('plugins/save-plugin-settings') }}
+
+    {{ forms.textField({
+        first: true,
+        label: "Max concurrent requests"|t('bulk-link-checker'),
+        instructions: "Higher is faster, but heavier on your server and remote sites. 5–50 is typical."|t('bulk-link-checker'),
+        name: 'concurrency',
+        value: settings.concurrency,
+        type: 'number',
+        min: 1,
+        max: 50,
+        size: 4,
+    }) }}
+
+    <div class="buttons">
+        <button type="submit" class="btn submit">
+            {{ "Save"|t('app') }}
+        </button>
+    </div>
+</form>
+
+{% endblock %}

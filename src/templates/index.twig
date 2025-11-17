@@ -1,0 +1,780 @@
+{% extends "_layouts/cp" %}
+
+{% set title = "Bulk Link Checker" %}
+
+{% set crumbs = [
+    {
+        label: "Bulk Link Checker",
+        url: url('bulk-link-checker')
+    }
+] %}
+{% import "_includes/forms" as forms %}
+
+{% set title = "Bulk Link Checker"|t('app') %}
+
+
+{% block content %}
+
+    {# ---------- DATA FOR OPTIONS ---------- #}
+
+    {# Sites #}
+    {% set siteOptions = [] %}
+    {% for site in craft.app.sites.getAllSites() %}
+        {% set siteOptions = siteOptions|merge([{ label: site.name, value: site.id }]) %}
+    {% endfor %}
+
+    {# Sections via Element Sources (version-safe) #}
+    {% set sectionOptions = [] %}
+    {% set sources = craft.app.elementSources.getSources('craft\\elements\\Entry', 'index') %}
+
+    {% for src in sources %}
+        {% if src.type is not defined or src.type != 'heading' %}
+            {% set id = src.criteria.sectionId is defined
+                ? (src.criteria.sectionId is iterable ? src.criteria.sectionId|first : src.criteria.sectionId)
+                : null
+            %}
+            {% set label = src.label ?? null %}
+            {% if id and label %}
+                {% set sectionOptions = sectionOptions|merge([{ label: label, value: id }]) %}
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+
+    {% set entryTypeOptions = [] %}
+    {% for section in craft.app.entries.getAllSections() ?? [] %}
+        {% for entryType in section.entryTypes ?? [] %}
+            {% set entryTypeOptions = entryTypeOptions|merge([{
+                label: section.name ~ ' – ' ~ entryType.name,
+                value: entryType.id
+            }]) %}
+        {% endfor %}
+    {% endfor %}
+
+    <form method="post" accept-charset="UTF-8">
+        {{ csrfInput() }}
+        {{ actionInput('bulk-link-checker/scan/run') }}
+        {{ redirectInput('bulk-link-checker') }}
+
+        {# ================= SCAN (TOP) ================= #}
+        <div class="pane">
+            <h2>Scan links</h2>
+
+            <p class="light">
+                For the pages you select below, we’ll always check that each page itself loads correctly.
+                You can optionally scan links in the content and assets, and choose what to ignore.
+                On larger sites this can take a while, so narrow things down if you only need a subset.
+            </p>
+
+            <div class="buttons">
+                <button type="submit" class="btn submit">
+                    Scan now
+                </button>
+            </div>
+        </div>
+
+        {# ================= 1. SITES ================= #}
+        <div class="pane">
+            <h2>1. Sites to scan</h2>
+
+            {# figure out which sites should be checked #}
+            {% set selectedSiteIds = siteIds ?? [] %}
+
+            {# if nothing has been submitted yet, default to ALL sites #}
+            {% if not selectedSiteIds|length %}
+                {% set selectedSiteIds = [] %}
+                {% for opt in siteOptions %}
+                    {% set selectedSiteIds = selectedSiteIds|merge([opt.value]) %}
+                {% endfor %}
+            {% endif %}
+
+            {{ forms.checkboxSelectField({
+                label: "Sites"|t('app'),
+                instructions: "Choose which sites you want to include in this scan."|t('app'),
+                name: 'siteIds',
+                options: siteOptions,
+                values: selectedSiteIds
+            }) }}
+        </div>
+
+        {# ================= 2. CONTENT SCOPE ================= #}
+        <div class="pane">
+            <h2>2. Content to scan</h2>
+
+            {{ forms.selectField({
+                label: "Entries to scan"|t('app'),
+                instructions: "Choose how you want to target entries."|t('app'),
+                id: 'entryScope',
+                name: 'entryScope',
+                options: [
+                    { label: "All entries", value: 'all' },
+                    { label: "By section…", value: 'section' },
+                    { label: "By entry type…", value: 'entryType' },
+                ],
+                value: entryScope ?? 'all'
+            }) }}
+
+            <div id="entryScope-sections" class="field {% if (entryScope ?? 'all') != 'section' %}hidden{% endif %}">
+                {{ forms.checkboxSelectField({
+                    label: "Sections"|t('app'),
+                    instructions: "Limit the scan to specific sections."|t('app'),
+                    name: 'sectionIds',
+                    options: sectionOptions,
+                    values: sectionIds ?? []
+                }) }}
+            </div>
+
+            <div id="entryScope-entryTypes" class="field {% if (entryScope ?? 'all') != 'entryType' %}hidden{% endif %}">
+                {{ forms.checkboxSelectField({
+                    label: "Entry types"|t('app'),
+                    instructions: "Limit the scan to specific entry types."|t('app'),
+                    name: 'entryTypeIds',
+                    options: entryTypeOptions,
+                    values: entryTypeIds ?? []
+                }) }}
+            </div>
+        </div>
+
+        {# ================= 3. WHAT TO CHECK / IGNORE ================= #}
+        <div class="pane">
+            <h2>3. What to check & what to ignore</h2>
+
+            <p>
+                For each matching entry, we always check the <strong>page URL</strong> itself.
+                Use these options to include extra checks, and optionally hide noise in the results.
+            </p>
+
+            <h3 class="heading">Extra checks on each page</h3>
+
+            {{ forms.checkboxField({
+                label: "Scan links inside content fields (Rich Text, Matrix, etc.)"|t('app'),
+                instructions: "Looks inside your content fields to find links pointing to other pages or websites."|t('app'),
+                name: 'checkContentLinks',
+                id: 'checkContentLinks',
+                checked: checkContentLinks ?? true
+            }) }}
+
+            {{ forms.checkboxField({
+                label: "Scan asset URLs in the page HTML (images, file links, etc.)"|t('app'),
+                instructions: "Checks assets referenced directly in the HTML. This does not include background images/fonts loaded via CSS files."|t('app'),
+                name: 'checkAssets',
+                id: 'checkAssets',
+                checked: checkAssets ?? false
+            }) }}
+
+            {{ forms.checkboxField({
+                label: "Include disabled and draft entries in content scanning"|t('app'),
+                instructions: "When enabled, links inside disabled and draft entries will also be scanned."|t('app'),
+                name: 'includeDisabled',
+                id: 'includeDisabled',
+                checked: includeDisabled ?? false,
+            }) }}
+
+            <hr>
+
+            <h3 class="heading">Hide or ignore in the results</h3>
+
+            {% set currentLinkMode = linkMode ?? 'both' %}
+
+            {{ forms.radioGroupField({
+                label: "Link types to show"|t('app'),
+                instructions: "Choose which links you want to include in the results."|t('app'),
+                name: 'linkMode',
+                options: [
+                    { label: "Internal & external"|t('app'), value: 'both' },
+                    { label: "Internal only"|t('app'), value: 'internal' },
+                    { label: "External only"|t('app'), value: 'external' },
+                ],
+                value: currentLinkMode,
+            }) }}
+
+            {{ forms.textareaField({
+                label: "Ignore URL patterns"|t('app'),
+                instructions: "One pattern per line. Any link URL containing one of these strings will be ignored (e.g. example.com, /preview/, ?utm_).",
+                name: 'ignorePatterns',
+                value: ignorePatterns ?? '',
+                rows: 4
+            }) }}
+        </div>
+
+    </form>
+
+    {# ================= RESULTS TABLE ================= #}
+    {% if results is defined %}
+        <div class="pane">
+            <h2>Last scan results</h2>
+
+            {% set grouped = results|length and results[0].links is defined %}
+
+            {% if grouped %}
+                {# Grouped by page #}
+                {% for pageResult in results %}
+                    {% set links = pageResult.links ?? [] %}
+
+                    {% set pageUrl = pageResult.page.url ?? null %}
+
+                    {# Links excluding the page URL itself #}
+                    {% set contentLinks = [] %}
+                    {% for link in links %}
+                        {% if not pageUrl or link.url != pageUrl %}
+                            {% set contentLinks = contentLinks|merge([link]) %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% set totalLinks = contentLinks|length %}
+                    {% set okCount = 0 %}
+                    {% set errorCount = 0 %}
+
+                    {% for link in contentLinks %}
+                        {% if link.statusCode is defined and link.statusCode %}
+                            {% if link.statusCode >= 200 and link.statusCode < 400 %}
+                                {% set okCount = okCount + 1 %}
+                            {% else %}
+                                {% set errorCount = errorCount + 1 %}
+                            {% endif %}
+                        {% endif %}
+                    {% endfor %}
+
+                    {% set uncheckedCount = totalLinks - okCount - errorCount %}
+
+                    {# Page URL and status #}
+                    {% set entryStatus = pageResult.page.status ?? 'live' %}
+                    {% set pageUrl     = pageResult.page.url ?? null %}
+                    {% set hasPageUrl  = pageUrl %}
+
+                    {# Try to find a link row that matches the page URL, else fall back to first link #}
+                    {% set pageLink = null %}
+                    {% if pageUrl %}
+                        {% for link in links %}
+                            {% if link.url == pageUrl %}
+                                {% set pageLink = link %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    {% if not pageLink and links|length %}
+                        {% set pageLink = links|first %}
+                    {% endif %}
+
+                    {# Page-level status label #}
+                    {% set pageStatusLabel = 'Page not checked' %}
+                    {% set pageStatusClass = 'blc-pill-muted' %}
+
+                    {# Draft entry #}
+                    {% if entryStatus == 'draft' %}
+                        {% set pageStatusLabel = 'Draft' %}
+                        {% set pageStatusClass = 'blc-pill-muted' %}
+
+                    {# Disabled entry #}
+                    {% elseif entryStatus == 'disabled' %}
+                        {% set pageStatusLabel = 'Disabled' %}
+                        {% set pageStatusClass = 'blc-pill-muted' %}
+
+                    {# No URL at all (section with no URL, or draft lacking one) #}
+                    {% elseif not hasPageUrl %}
+                        {% set pageStatusLabel = 'No public URL' %}
+                        {% set pageStatusClass = 'blc-pill-muted' %}
+
+                    {# Live entry with an HTTP result from pageLink #}
+                    {% elseif pageLink and pageLink.statusCode is defined and pageLink.statusCode %}
+                        {% set pageHasRedirects = pageLink.hasRedirects ?? false %}
+                        {% if pageLink.statusCode >= 200 and pageLink.statusCode < 400 %}
+                            {% set pageStatusLabel = pageHasRedirects
+                                ? 'Page OK via redirect (' ~ pageLink.statusCode ~ ')'
+                                : 'Page OK (' ~ pageLink.statusCode ~ ')'
+                            %}
+                            {% set pageStatusClass = 'blc-pill-ok' %}
+                        {% else %}
+                            {% set pageStatusLabel = 'Page issue (' ~ pageLink.statusCode ~ ')' %}
+                            {% set pageStatusClass = 'blc-pill-error' %}
+                        {% endif %}
+                    {% endif %}
+
+                    <div class="blc-page-group {{ contentLinks|length == 0 ? 'blc-group-empty' : '' }}">
+                        {# --- Page header --- #}
+                        <div class="blc-page-header">
+                            <div class="blc-page-header-inner">
+                                <div class="blc-page-main">
+                                    {# Title links to CP edit when possible #}
+                                    {% if pageResult.page.cpEditUrl ?? null %}
+                                        <a href="{{ pageResult.page.cpEditUrl }}">
+                                            {{ pageResult.page.title ?? pageResult.page.url ?? 'Untitled' }}
+                                        </a>
+                                    {% elseif pageUrl %}
+                                        <a href="{{ pageUrl }}" target="_blank" rel="noopener">
+                                            {{ pageResult.page.title ?? pageUrl }}
+                                        </a>
+                                    {% else %}
+                                        {{ pageResult.page.title ?? 'Untitled' }}
+                                    {% endif %}
+
+                                    {% if pageResult.page.siteName ?? null %}
+                                        <span class="light">({{ pageResult.page.siteName }})</span>
+                                    {% endif %}
+
+                                    {# Live page link in the tab/header #}
+                                    {% if pageUrl and entryStatus != 'draft' and entryStatus != 'disabled' %}
+                                        <a href="{{ pageUrl }}" target="_blank" rel="noopener" class="blc-page-live-link">
+                                            View page
+                                        </a>
+                                    {% endif %}
+
+                                    <span class="blc-pills">
+                                        <span class="blc-pill {{ pageStatusClass }}">
+                                            {{ pageStatusLabel }}
+                                        </span>
+
+                                        {% if totalLinks == 0 %}
+                                            <span class="blc-pill blc-pill-muted">
+                                                No links found
+                                            </span>
+                                        {% else %}
+                                            {% if errorCount > 0 %}
+                                                <span class="blc-pill blc-pill-error">
+                                                    {{ errorCount }} link{{ errorCount == 1 ? '' : 's' }} with issues
+                                                </span>
+                                            {% endif %}
+
+                                            {% if okCount > 0 %}
+                                                <span class="blc-pill blc-pill-ok">
+                                                    {{ okCount }} link{{ okCount == 1 ? '' : 's' }} OK
+                                                </span>
+                                            {% endif %}
+
+                                            {% if uncheckedCount > 0 %}
+                                                <span class="blc-pill blc-pill-muted">
+                                                    {{ uncheckedCount }} link{{ uncheckedCount == 1 ? '' : 's' }} unchecked
+                                                </span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </span>
+                                </div>
+
+                                <span class="blc-chevron">▸</span>
+                            </div>
+                        </div>
+
+                        {# --- Per-page table (links only, no separate Page row) --- #}
+                        <table class="data fullwidth blc-page-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">Status</th>
+                                    <th style="width: 80px;">Kind</th>
+                                    <th>URL</th>
+                                    <th style="width: 80px;">Type</th>
+                                    <th>Message</th>
+                                </tr>
+                            </thead>
+
+                            <tbody>
+                                {# All links for this page #}
+                                {% for link in contentLinks %}
+                                    {% set statusCode  = link.statusCode ?? null %}
+                                    {% set statusClass = 'blc-pill blc-pill-muted' %}
+
+                                    {% if statusCode %}
+                                        {% if statusCode >= 200 and statusCode < 400 %}
+                                            {% set statusClass = 'blc-pill blc-pill-ok' %}
+                                        {% else %}
+                                            {% set statusClass = 'blc-pill blc-pill-error' %}
+                                        {% endif %}
+                                    {% endif %}
+
+                                    {# Redirect meta from PHP #}
+                                    {% set hasRedirects  = link.hasRedirects ?? false %}
+                                    {% set redirectCount = link.redirectCount ?? 0 %}
+                                    {% set finalUrl      = link.finalUrl ?? null %}
+
+                                    <tr>
+                                        <td>
+                                            <span class="{{ statusClass }}">
+                                                {{ statusCode ?? '—' }}
+                                            </span>
+
+                                            {# Small badge if this went through redirects #}
+                                            {% if hasRedirects %}
+                                                <div class="blc-redirect-pill">
+                                                    <span class="blc-pill blc-pill-muted">
+                                                        Redirect ({{ redirectCount }} hop{{ redirectCount == 1 ? '' : 's' }})
+                                                    </span>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+
+                                        <td>Link</td>
+
+                                        <td>
+                                            <div class="blc-url-cell">
+                                                <a href="{{ link.url }}" target="_blank" rel="noopener">
+                                                    {{ link.url }}
+                                                </a>
+
+                                                {% set redirectUrls  = link.redirectUrls  ?? [] %}
+                                                {% set redirectCodes = link.redirectCodes ?? [] %}
+
+                                                {% if redirectUrls|length %}
+                                                    <div class="blc-redirect-chain">
+                                                        <div class="light text-xs">Redirect chain:</div>
+
+                                                        {% set fromUrl = link.url %}
+                                                        <ul>
+                                                            {% for toUrl in redirectUrls %}
+                                                                {% set code = redirectCodes[loop.index0] ?? '—' %}
+                                                                <li>
+                                                                    <span class="blc-redirect-code">{{ code }}</span>
+                                                                    <span class="blc-redirect-from">{{ fromUrl }}</span>
+                                                                    &nbsp;→&nbsp;
+                                                                    <span class="blc-redirect-to">{{ toUrl }}</span>
+                                                                </li>
+                                                                {% set fromUrl = toUrl %}
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+
+
+                                        <td>{{ link.type|capitalize }}</td>
+
+                                        <td>{{ link.message ?? '' }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+
+                        </table>
+                    </div>
+                {% endfor %}
+            {% else %}
+
+                <table class="data fullwidth">
+                    <thead>
+                        <tr>
+                            <th>Link URL</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in results %}
+                            <tr>
+                                <td>
+                                    {% if row.url %}
+                                        <a href="{{ row.url }}" target="_blank" rel="noopener">
+                                            {{ row.url }}
+                                        </a>
+                                    {% endif %}
+                                </td>
+
+                                <td>{{ row.type ?? 'external' }}</td>
+                                <td>{{ row.statusCode ?? '—' }}</td>
+                                <td>{{ row.message ?? '' }}</td>
+
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="light">
+                                    No results yet. Run a scan to see broken links.
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% endif %}
+        </div>
+    {% endif %}
+
+{% endblock %}
+
+{% js %}
+(function(){
+    const sel = document.getElementById('entryScope');
+    const bySection = document.getElementById('entryScope-sections');
+    const byType = document.getElementById('entryScope-entryTypes');
+    function refresh(){
+        if (!sel) return;
+        const v = sel.value;
+        bySection?.classList.toggle('hidden', v!=='section');
+        byType?.classList.toggle('hidden', v!=='entryType');
+    }
+    sel?.addEventListener('change', refresh);
+    refresh();
+
+    document.addEventListener('click', function (event) {
+        var header = event.target.closest('.blc-page-header');
+        if (!header) {
+            return;
+        }
+
+        var group = header.closest('.blc-page-group');
+        if (!group) {
+            return;
+        }
+
+        // don't open empty groups (no content links)
+        if (group.classList.contains('blc-group-empty')) {
+            return;
+        }
+
+        group.classList.toggle('is-open');
+
+    });
+
+    var contentCheckbox  = document.getElementById('checkContentLinks');
+    var assetCheckbox    = document.getElementById('checkAssets');
+    var disabledCheckbox = document.getElementById('includeDisabled');
+
+    function syncIncludeDisabledState() {
+        if (!contentCheckbox) {
+            return;
+        }
+
+        var off = !contentCheckbox.checked;
+
+        if (disabledCheckbox) {
+            disabledCheckbox.checked = disabledCheckbox.checked && !off;
+            disabledCheckbox.disabled = off;
+            disabledCheckbox.closest('.field').classList.toggle('is-disabled', off);
+        }
+
+        if (assetCheckbox) {
+            assetCheckbox.checked = assetCheckbox.checked && !off;
+            assetCheckbox.disabled = off;
+            assetCheckbox.closest('.field').classList.toggle('is-disabled', off);
+        }
+    }
+
+    if (contentCheckbox) {
+        contentCheckbox.addEventListener('change', syncIncludeDisabledState);
+        syncIncludeDisabledState();
+    }
+
+    function refreshLinkRow(button) {
+        var row = button.closest('.blc-link-row');
+        if (!row) return;
+
+        var url     = row.dataset.url;
+        var entryId = row.dataset.entryId || '';
+
+        if (!url) return;
+
+        button.disabled = true;
+        button.classList.add('loading');
+
+        var formData = new FormData();
+        formData.append('url', url);
+        if (entryId) {
+            formData.append('entryId', entryId);
+        }
+        formData.append(Craft.csrfTokenName, Craft.csrfTokenValue);
+
+        fetch(Craft.getActionUrl('bulk-link-checker/scan/refresh-link'), {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin',
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (data) {
+            // status pill
+            var statusSpan = row.querySelector('td:first-child span');
+            if (statusSpan) {
+                var code = data.statusCode || '—';
+                statusSpan.textContent = code;
+
+                statusSpan.classList.remove('blc-pill-ok', 'blc-pill-error', 'blc-pill-muted');
+
+                if (!data.statusCode) {
+                    statusSpan.classList.add('blc-pill-muted');
+                } else if (data.statusCode >= 200 && data.statusCode < 400) {
+                    statusSpan.classList.add('blc-pill-ok');
+                } else {
+                    statusSpan.classList.add('blc-pill-error');
+                }
+            }
+
+            // message cell
+            var cells = row.querySelectorAll('td');
+            // assuming Message is 5th col (adjust index if needed)
+            var messageCell = cells[4];
+            if (messageCell) {
+                messageCell.textContent = data.message || '';
+            }
+
+            // last checked cell (next one)
+            var lastCheckedCell = cells[5];
+            if (lastCheckedCell) {
+                lastCheckedCell.textContent = 'Just now';
+            }
+        })
+        .catch(function () {
+            // optionally show an error
+        })
+        .finally(function () {
+            button.disabled = false;
+            button.classList.remove('loading');
+        });
+    }
+
+    // run once on load
+    syncIncludeDisabledState();
+
+})();
+{% endjs %}
+{% css %}
+.blc-page-group {
+    border: 1px solid rgba(0,0,0,0.06);
+    border-radius: 4px;
+    margin-bottom: 10px;
+    background: #fff;
+}
+
+.blc-page-header {
+    cursor: pointer;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    background: rgba(0,0,0,0.015);
+}
+
+.blc-page-header:hover {
+    background: rgba(0,0,0,0.035);
+}
+
+.blc-page-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.blc-page-main {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.blc-page-main .light {
+    color: rgba(0,0,0,0.6);
+    font-weight: normal;
+}
+
+/* Chevron on the right */
+
+.blc-chevron {
+    font-size: 11px;
+    transition: transform 0.15s ease-out;
+    color: rgba(0,0,0,0.55);
+}
+
+.blc-page-group.is-open .blc-chevron {
+    transform: rotate(90deg);
+}
+
+/* Inner tables */
+
+.blc-page-table {
+    width: 100%;
+    border-collapse: collapse;
+    display: none; /* collapsed by default */
+
+}
+
+.blc-page-table thead th {
+    background: #f6f7f9; /* light gray, same tone Craft uses elsewhere */
+    color: #333;
+    font-weight: 600;
+    border-bottom: 1px solid #d7dce2;
+}
+
+.blc-page-table tbody td {
+    background: #fff;
+}
+
+.blc-page-group.is-open .blc-page-table {
+    display: table;
+}
+
+.blc-page-table th,
+.blc-page-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    vertical-align: top;
+    font-size: 13px;
+}
+
+.blc-url-cell a {
+    word-break: break-all;
+}
+
+/* Pills */
+
+.blc-pills {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: 4px;
+}
+
+.blc-pill {
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 11px;
+    line-height: 1.4;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.blc-pill-ok {
+    background: rgba(46, 204, 113, 0.10);
+    border-color: rgba(46, 204, 113, 0.4);
+    color: #1e8449;
+}
+
+.blc-pill-error {
+    background: rgba(231, 76, 60, 0.10);
+    border-color: rgba(231, 76, 60, 0.4);
+    color: #922b21;
+}
+
+.blc-pill-muted {
+    background: rgba(0,0,0,0.02);
+    border-color: rgba(0,0,0,0.10);
+    color: rgba(0,0,0,0.65);
+}
+
+.blc-edit-icon {
+    margin-left: 6px;
+    opacity: 0.65;
+    transition: opacity 0.15s;
+    display: inline-flex;
+    vertical-align: middle;
+}
+
+.blc-edit-icon:hover {
+    opacity: 1;
+}
+
+.blc-page-live-link {
+    font-size: 11px;
+    margin-left: 8px;
+    color: rgba(0,0,0,0.6);
+}
+.blc-page-live-link:hover {
+    color: rgba(0,0,0,0.85);
+}
+
+.blc-page-group .field.is-disabled,
+.field.is-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+.blc-group-empty .blc-chevron {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.blc-group-empty .blc-page-header {
+    cursor: default;
+}
+
+{% endcss %}

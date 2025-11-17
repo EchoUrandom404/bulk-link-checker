@@ -1,0 +1,27 @@
+{
+    "name": "acelabs/bulk-link-checker",
+    "description": "Bulk Link Checker plugin for Craft CMS by AceLabs.",
+    "type": "craft-plugin",
+    "keywords": ["link", "check", "scan"],
+    "license": "MIT",
+    "require": {
+        "craftcms/cms": "^4.0 || ^5.0",
+        "guzzlehttp/guzzle": "^7.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "acelabs\\bulklinkchecker\\": "src/"
+        }
+    },
+    "extra": {
+        "handle": "bulk-link-checker",
+        "name": "Bulk Link Checker",
+        "developer": "AceLabs",
+        "developerUrl": "https://example.com",
+        "schemaVersion": "1.0.0",
+        "hasCpSettings": false,
+        "hasCpSection": true,
+        "changelogUrl": "https://example.com/changelog",
+        "class": "acelabs\\bulklinkchecker\\BulkLinkChecker"
+    }
+}
