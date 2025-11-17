@@ -188,5 +188,5 @@ Please open an issue on the project repository.
 
 ## License
 
-MIT License  
+All right reserved.
 **© AceLabs 2025**
