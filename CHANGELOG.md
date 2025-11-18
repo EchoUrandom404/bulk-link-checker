@@ -1,0 +1,15 @@
+# Bulk Link Checker Changelog
+
+# 1.0.0.1 - 2025-11-18
+### Changed
+* Adjusted release file to use Craft license
+* Cleaned up composer file
+* Included create-release.yml file for automating GitHub releases
+
+### Added
+* Included changelog file
+
+
+# 1.0.0 - 2025-11-17
+### Added
+* Initial Release
