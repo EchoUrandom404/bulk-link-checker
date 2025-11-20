@@ -1,4 +1,6 @@
 # Bulk Link Checker Changelog
+# 1.0.0.2 - 2025-11-20
+* Fixed draft/disabled pages appearing as redirects
 
 # 1.0.0.1 - 2025-11-18
 ### Changed
