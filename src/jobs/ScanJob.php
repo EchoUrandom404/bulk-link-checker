@@ -37,10 +37,7 @@ class ScanJob extends BaseJob
             // scan just this one entry – re-use scanEntries() for consistency
             $resultForEntry = $scanner->scanEntries([$entry], $options);
 
-            // scanEntries() returns either:
-            //  - grouped: [ [ 'page' => ..., 'links' => [...] ] ]
-            //  - flat:    [ ...rows... ]
-            // so merge smartly
+
             if (($options['linkMode'] ?? 'internal') === 'external') {
                 // flat
                 $chunkResults = array_merge($chunkResults, $resultForEntry);

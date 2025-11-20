@@ -118,11 +118,21 @@ class ScannerService extends Component
             $entryUrl    = $entry->getUrl();
             $entryStatus = $entry->getStatus();
 
+            // Normalise drafts so Twig can spot them
+            if (method_exists($entry, 'getIsDraft') && $entry->getIsDraft()) {
+                $entryStatus = 'draft';
+            }
+
+            // For anything that isn't live, treat it as having no public URL
+            if ($entryStatus !== Entry::STATUS_LIVE) {
+                $entryUrl = null;
+            }
             $pageMeta = [
                 'title'     => $entry->title,
                 'url'       => $entryUrl,
                 'siteName'  => $entry->getSite()->name,
                 'cpEditUrl' => $entry->getCpEditUrl(),
+                'status'    => $entryStatus,
             ];
 
             $linksForPage = [];
@@ -444,60 +454,6 @@ class ScannerService extends Component
         }        
 
         return $results;
-    }
-
-    private function checkUrl(string $url): array
-    {
-        $statusCode = null;
-        $ok = false;
-        $message = '';
-        $redirectMeta = [
-            'hasRedirects'  => false,
-            'redirectCount' => 0,
-            'codes'         => [],
-            'urls'          => [],
-            'finalUrl'      => $url,
-        ];
-
-        try {
-            // Try HEAD first
-            $response   = $this->client->request('HEAD', $url);
-            $statusCode = $response->getStatusCode();
-
-            $redirectMeta = $this->buildRedirectMeta($response, $url);
-
-            // If server hates HEAD, fall back to GET
-            if (in_array($statusCode, [400, 403, 404, 405], true)) {
-                $response   = $this->client->request('GET', $url);
-                $statusCode = $response->getStatusCode();
-
-                // Rebuild redirect meta from the GET response
-                $redirectMeta = $this->buildRedirectMeta($response, $url);
-            }
-
-            $ok      = $statusCode >= 200 && $statusCode < 400;
-            $message = $response->getReasonPhrase();
-        } catch (GuzzleException $e) {
-
-            $errorMessage = $e->getMessage() ?? '';
-
-            if (str_contains($errorMessage, 'Could not resolve host')) {
-                $message = 'Domain could not be resolved (DNS error)';
-            } elseif (str_contains($errorMessage, 'Connection timed out') || str_contains($errorMessage, 'timed out')) {
-                $message = 'Connection timed out';
-            } elseif (str_contains($errorMessage, 'SSL') || str_contains($errorMessage, 'certificate')) {
-                $message = 'Invalid SSL certificate or HTTPS error';
-            } elseif (str_contains($errorMessage, 'Failed to connect')) {
-                $message = 'Could not connect to server';
-            } else {
-                $message = 'Network error: ' . $errorMessage;
-            }
-        } catch (\Throwable $e) {
-            $message = $e->getMessage();
-        }
-
-        // [statusCode, ok, message, redirectMeta]
-        return [$statusCode, $ok, $message, $redirectMeta];
     }
 
     /**

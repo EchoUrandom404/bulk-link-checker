@@ -237,11 +237,19 @@
                     {% set uncheckedCount = totalLinks - okCount - errorCount %}
 
                     {# Page URL and status #}
-                    {% set entryStatus = pageResult.page.status ?? 'live' %}
-                    {% set pageUrl     = pageResult.page.url ?? null %}
-                    {% set hasPageUrl  = pageUrl %}
+                    {% set pageMeta = pageResult.page ?? {} %}
 
-                    {# Try to find a link row that matches the page URL, else fall back to first link #}
+                    {# Safely derive entryStatus without blowing up on missing key #}
+                    {% if pageMeta.status is defined and pageMeta.status %}
+                        {% set entryStatus = pageMeta.status|lower %}
+                    {% else %}
+                        {% set entryStatus = 'live' %}
+                    {% endif %}
+
+                    {% set pageUrl    = pageMeta.url ?? null %}
+                    {% set hasPageUrl = pageUrl %}
+
+                    {# Try to find a link row that matches the page URL #}
                     {% set pageLink = null %}
                     {% if pageUrl %}
                         {% for link in links %}
@@ -250,7 +258,9 @@
                             {% endif %}
                         {% endfor %}
                     {% endif %}
-                    {% if not pageLink and links|length %}
+
+                    {# Only fall back to first link for LIVE entries #}
+                    {% if not pageLink and links|length and entryStatus == 'live' %}
                         {% set pageLink = links|first %}
                     {% endif %}
 
@@ -268,13 +278,17 @@
                         {% set pageStatusLabel = 'Disabled' %}
                         {% set pageStatusClass = 'blc-pill-muted' %}
 
-                    {# No URL at all (section with no URL, or draft lacking one) #}
+                    {# No URL at all #}
                     {% elseif not hasPageUrl %}
                         {% set pageStatusLabel = 'No public URL' %}
                         {% set pageStatusClass = 'blc-pill-muted' %}
 
                     {# Live entry with an HTTP result from pageLink #}
-                    {% elseif pageLink and pageLink.statusCode is defined and pageLink.statusCode %}
+                    {% elseif entryStatus == 'live'
+                        and pageLink
+                        and pageLink.statusCode is defined
+                        and pageLink.statusCode     
+                    %}
                         {% set pageHasRedirects = pageLink.hasRedirects ?? false %}
                         {% if pageLink.statusCode >= 200 and pageLink.statusCode < 400 %}
                             {% set pageStatusLabel = pageHasRedirects
