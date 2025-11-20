@@ -1,5 +1,5 @@
 {
-    "name": "acelabs/bulk-link-checker",
+    "name": "acelabs/craft-bulk-link-checker",
     "description": "Bulk Link Checker plugin for Craft CMS by AceLabs.",
     "type": "craft-plugin",
     "keywords": ["link", "check", "scan"],
