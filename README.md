@@ -56,7 +56,7 @@ This plugin automatically:
 ### Via Composer
 
 ```
-composer require acelabs/craft-bulk-link-checker
+composer require acelabs/bulk-link-checker
 ```
 
 Then enable the plugin in:
