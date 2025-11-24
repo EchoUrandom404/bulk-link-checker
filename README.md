@@ -23,6 +23,7 @@ Manually checking every link is impossible. However, Bulk Link Checker does this
 - Redirect‑chain tracking  
 - Internal & external link checking  
 - Advanced filtering
+- Export to CSV
 - Optional draft/disabled content scanning 
 - See HTTP status codes & messages  
 - Optional asset scanning (images/files)  
@@ -74,6 +75,7 @@ Then enable the plugin in:
 - View grouped results  
 - Inspect redirect chains  
 - Fix issues and rescan  
+- Export to CSV
 
 ---
 
