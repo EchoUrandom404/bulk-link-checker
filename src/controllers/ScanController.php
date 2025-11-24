@@ -134,5 +134,121 @@ class ScanController extends Controller
         ]);
     }
 
+    public function actionExport(): Response
+    {
+        $this->requireLogin();
 
+        $user   = Craft::$app->getUser()->getIdentity();
+        $userId = $user?->id ?? 0;
+
+        $resultsKey = "bulk-link-checker:results:{$userId}";
+        $data       = Craft::$app->getCache()->get($resultsKey) ?: null;
+
+        if (!$data || empty($data['results']) || !is_array($data['results'])) {
+            Craft::$app->getSession()->setError(Craft::t(
+                'bulk-link-checker',
+                'No scan results found to export.'
+            ));
+
+            return $this->redirect('bulk-link-checker');
+        }
+
+        $results = $data['results'];
+        $grouped = isset($results[0]['links']);
+
+        $response = Craft::$app->getResponse();
+        $response->format = Response::FORMAT_RAW;
+        $response->headers->set('Content-Type', 'text/csv; charset=utf-8');
+        $response->headers->set(
+            'Content-Disposition',
+            'attachment; filename="bulk-link-checker-export.csv"'
+        );
+
+        // write CSV into a temp stream
+        $fp = fopen('php://temp', 'r+');
+
+        if ($grouped) {
+            // internal/both mode
+            fputcsv($fp, [
+                'Page title',
+                'Entry status',
+                'Site',
+                'Page URL',
+                'Entry CP URL',
+                'Link URL',
+                'Link type',
+                'HTTP status',
+                'OK?',
+                'Message',
+                'Has redirects',
+                'Redirect count',
+                'Final URL',
+            ]);
+
+            foreach ($results as $pageResult) {
+                $page  = $pageResult['page']  ?? [];
+                $links = $pageResult['links'] ?? [];
+
+                $pageTitle  = $page['title']    ?? '';
+                $pageStatus = $page['status']   ?? '';
+                $siteName   = $page['siteName'] ?? '';
+                $pageUrl    = $page['url']      ?? '';
+                $cpEditUrl  = $page['cpEditUrl']?? '';
+
+                foreach ($links as $link) {
+
+                    fputcsv($fp, [
+                        $pageTitle,
+                        $pageStatus,
+                        $siteName,
+                        $pageUrl,
+                        $cpEditUrl,
+                        $link['url']        ?? '',
+                        $link['type']       ?? '',
+                        $link['statusCode'] ?? '',
+                        !empty($link['ok']) ? 'yes' : 'no',
+                        $link['message']    ?? '',
+                        !empty($link['hasRedirects']) ? 'yes' : 'no',
+                        $link['redirectCount'] ?? 0,
+                        $link['finalUrl'] ?? ($link['url'] ?? ''),
+                    ]);
+                }
+            }
+        } else {
+            // external-only flat mode
+            fputcsv($fp, [
+                'Link URL',
+                'Type',
+                'HTTP status',
+                'OK?',
+                'Message',
+                'Found on',
+                'Found on (CP URL)',
+                'Has redirects',
+                'Redirect count',
+                'Final URL',
+            ]);
+
+            foreach ($results as $row) {
+                fputcsv($fp, [
+                    $row['url']        ?? '',
+                    $row['type']       ?? '',
+                    $row['statusCode'] ?? '',
+                    !empty($row['ok']) ? 'yes' : 'no',
+                    $row['message']    ?? '',
+                    $row['foundOn']    ?? '',
+                    $row['foundOnUrl'] ?? '',
+                    !empty($row['hasRedirects']) ? 'yes' : 'no',
+                    $row['redirectCount'] ?? 0,
+                    $row['finalUrl'] ?? ($row['url'] ?? ''),
+                ]);
+            }
+        }
+
+        rewind($fp);
+        $response->content = stream_get_contents($fp);
+        fclose($fp);
+
+        return $response;
+    }
 }

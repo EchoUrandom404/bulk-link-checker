@@ -201,7 +201,17 @@
     {# ================= RESULTS TABLE ================= #}
     {% if results is defined %}
         <div class="pane">
-            <h2>Last scan results</h2>
+            <div class="flex" style="justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 30px;">
+                <h2 style="margin-bottom: 0px">Last scan results</h2>
+
+                {% if results|length %}
+                    <div class="buttons; margin-bottom: auto">
+                        <a href="{{ cpUrl('actions/bulk-link-checker/scan/export') }}" class="btn">
+                            Export CSV
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
 
             {% set grouped = results|length and results[0].links is defined %}
 
